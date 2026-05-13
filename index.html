@@ -1,0 +1,769 @@
+import React, { useState, useMemo, useEffect } from 'react';
+import { Plus, Trash2, TrendingUp, DollarSign, Percent, Info, ArrowDown, Link as LinkIcon, Globe, ArrowUp, RefreshCw, Lock, Unlock, Settings, Swords, Gavel, Target, Users, BarChart3, Map as MapIcon, UserPlus, X, List, Edit2 } from 'lucide-react';
+
+const COGS_Calculator = () => {
+  const [activeTab, setActiveTab] = useState('scenarios');
+  const [lang, setLang] = useState('en'); // 'en' or 'cn'
+  const [chainDirection, setChainDirection] = useState('forward'); 
+  const [hoveredNodeId, setHoveredNodeId] = useState(null); 
+  
+  // --- Currency State ---
+  const [currency, setCurrency] = useState('USD');
+  const [rates, setRates] = useState({ 
+    USD: 1, 
+    NTD: 32.45, 
+    CNY: 7.25   
+  });
+  
+  // --- Supply Chain Builder State ---
+  const [scenarios, setScenarios] = useState([
+    { id: 1, tier: 'T1', name: 'Original Supplier', price: 100, margin: 30, cogs: 70, mode: 'CALC_COGS' },
+    { id: 2, tier: 'T2', name: 'Distributor', price: 120, margin: 16.67, cogs: 100, mode: 'CALC_MARGIN' }, 
+    { id: 3, tier: 'T3', name: 'Retailer / End Customer', price: 150, margin: 20, cogs: 120, mode: 'CALC_MARGIN' },
+  ]);
+
+  // --- Tender State ---
+  const [tenderParticipants, setTenderParticipants] = useState([
+    { id: 'organizer', name: 'Bid Organizer', price: 116, role: 'target', color: 'bg-slate-700' },
+    { id: 'player1', name: 'Player_1 (You)', price: 98, role: 'user', color: 'bg-blue-600' },
+    { id: 'tender1', name: 'Competitor A', price: 105, role: 'competitor', color: 'bg-red-500' },
+    { id: '3rdparty', name: '3rd Party', price: 99, role: 'observer', color: 'bg-gray-500' },
+  ]);
+
+  // --- Sensitivity Matrix State ---
+  const [matrixBasePrice, setMatrixBasePrice] = useState(100);
+  const [matrixBaseMargin, setMatrixBaseMargin] = useState(30);
+  const [priceStep, setPriceStep] = useState(10);
+  const [marginStep, setMarginStep] = useState(5);
+
+  // --- Localization Dictionary ---
+  const t = {
+    en: {
+      title: "Supply Chain Simulator",
+      subtitle: "Tier Linkage & Tender Analysis",
+      
+      // Tabs
+      tab_builder: "Tier Chain Builder",
+      tab_matrix: "Sensitivity Matrix",
+      tab_rift: "Summoner's Rift (Tender War Room)",
+
+      // --- Builder Tab Text (Restored) ---
+      info_title: chainDirection === 'forward' ? "Forward Chain Mode:" : "Target Costing (Reverse) Mode:",
+      info_p1: chainDirection === 'forward' 
+        ? "Flow: Supplier ➜ Customer. Start at T1 (Supplier)."
+        : "Flow: Customer ➜ Supplier. Start at T1 (Market/Customer).",
+      info_p2: chainDirection === 'forward'
+        ? "Changing T1 Price updates T2 COGS."
+        : "Changing T1 COGS (Target Cost) updates T2 Selling Price.",
+      
+      th_tier: "Tier",
+      th_desc: "Description",
+      th_price: `Selling Price`,
+      th_price_sub: "(Revenue)",
+      th_margin: "Margin (%)",
+      th_margin_sub: "(Target)",
+      th_cogs: `COGS`,
+      th_cogs_sub: chainDirection === 'forward' ? "(Cost)" : "(Target Cost)",
+      th_profit: "Profit",
+      th_del: "Del",
+      
+      btn_add: "Add Next Tier",
+      legend_manual: "Manual Input",
+      legend_linked: "Auto-Linked",
+      legend_steady: "Steady / Fixed",
+
+      // Tender Text
+      tender_gen_title: "Role Generator",
+      tender_gen_subtitle: "Manage and edit participants.",
+      tender_map_title: "Pricing Position Map",
+      tender_map_subtitle: "Smart-spacing active. Hover nodes for analysis.",
+      btn_add_target: "Organizer",
+      btn_add_comp: "Competitor",
+      btn_add_user: "Player",
+      btn_add_obs: "Observer",
+      role_target: "Target",
+      role_user: "You",
+      role_competitor: "Rival",
+      role_observer: "3rd Party",
+      stat_lowest: "Lowest Bid",
+      stat_avg: "Avg Bid",
+      stat_gap: "Gap to Target",
+      compare_title: "Battle Analysis",
+      col_vs: "vs",
+      col_diff: "Diff ($)",
+      col_pct: "Diff (%)",
+      curr_label: "Currency:",
+      dir_forward: "Forward Pricing",
+      dir_reverse: "Reverse / Target",
+      dir_forward_desc: "T(x) Selling Price sets T(x+1) COGS",
+      dir_reverse_desc: "T(x) COGS sets T(x+1) Selling Price",
+      mat_center_price: "Center Price",
+      mat_price_step: "Price Step",
+      mat_center_margin: "Center Margin (%)",
+      mat_margin_step: "Margin Step (%)",
+      mat_axis: "Margin (Y) \\ Price (X)",
+      mat_footer: "*Values in the grid represent the maximum allowable COGS to maintain the row's Margin % at the column's Selling Price."
+    },
+    cn: {
+      title: "供應鏈模擬器",
+      subtitle: "層級連動與標案分析",
+      
+      // Tabs
+      tab_builder: "層級鏈構建器",
+      tab_matrix: "敏感度矩陣",
+      tab_rift: "召喚峽谷 (標案戰情室)",
+
+      // --- Builder Tab Text (Restored) ---
+      info_title: chainDirection === 'forward' ? "順向鏈結模式：" : "目標成本 (逆向) 模式：",
+      info_p1: chainDirection === 'forward'
+        ? "流向：供應商 ➜ 客戶。從 T1 (供應商) 開始。"
+        : "流向：客戶 ➜ 供應商。從 T1 (市場/客戶) 開始。",
+      info_p2: chainDirection === 'forward'
+        ? "修改 T1 價格 將自動更新 T2 進貨成本 (COGS)。"
+        : "修改 T1 銷貨成本 (COGS) 將自動更新 T2 銷售價格。",
+      
+      th_tier: "層級",
+      th_desc: "描述",
+      th_price: `銷售價格`,
+      th_price_sub: "(營收)",
+      th_margin: "毛利率 (%)",
+      th_margin_sub: "(目標)",
+      th_cogs: `銷貨成本`,
+      th_cogs_sub: chainDirection === 'forward' ? "(成本)" : "(目標成本)",
+      th_profit: "獲利",
+      th_del: "刪除",
+
+      btn_add: "新增下一層級",
+      legend_manual: "手動輸入",
+      legend_linked: "自動連動",
+      legend_steady: "數值鎖定 / 穩定",
+
+      // Tender Text
+      tender_gen_title: "角色產生器",
+      tender_gen_subtitle: "管理與編輯參與者。",
+      tender_map_title: "價格定位地圖",
+      tender_map_subtitle: "智慧防重疊已啟用。游標移動至節點查看分析。",
+      btn_add_target: "主辦方",
+      btn_add_comp: "競爭對手",
+      btn_add_user: "玩家",
+      btn_add_obs: "觀察員",
+      role_target: "目標",
+      role_user: "您",
+      role_competitor: "對手",
+      role_observer: "第三方",
+      stat_lowest: "最低標",
+      stat_avg: "平均標價",
+      stat_gap: "與目標價差",
+      compare_title: "戰情分析",
+      col_vs: "比較對象",
+      col_diff: "價差 ($)",
+      col_pct: "價差 (%)",
+      curr_label: "幣別：",
+      dir_forward: "順向定價",
+      dir_reverse: "逆向/目標成本",
+      dir_forward_desc: "T(x) 售價 決定 T(x+1) 成本",
+      dir_reverse_desc: "T(x) 成本 決定 T(x+1) 售價",
+      mat_center_price: "中心價格",
+      mat_price_step: "價格級距",
+      mat_center_margin: "中心毛利 (%)",
+      mat_margin_step: "毛利級距 (%)",
+      mat_axis: "毛利 (Y) \\ 價格 (X)",
+      mat_footer: "*網格中的數值代表在該欄位的銷售價格下，為維持該列毛利率所允許的最大銷貨成本 (COGS)。"
+    }
+  };
+
+  const text = t[lang];
+
+  // --- Helpers ---
+  const formatCurrency = (val) => {
+    if (val === '' || isNaN(val)) return '-';
+    let options = { style: 'currency', currency: 'USD' };
+    if (currency === 'NTD') options = { style: 'currency', currency: 'TWD', minimumFractionDigits: 0 };
+    if (currency === 'CNY') options = { style: 'currency', currency: 'CNY' };
+    return new Intl.NumberFormat('en-US', options).format(val);
+  };
+
+  const roundTo = (num, places) => {
+    const factor = Math.pow(10, places);
+    return Math.round(num * factor) / factor;
+  };
+
+  // --- Currency Logic ---
+  const handleCurrencySwitch = (newCurrency) => {
+    if (newCurrency === currency) return;
+    const factor = rates[newCurrency] / rates[currency];
+    const newScenarios = scenarios.map(s => ({
+      ...s,
+      price: s.price !== '' ? roundTo(s.price * factor, 2) : '',
+      cogs: s.cogs !== '' ? roundTo(s.cogs * factor, 2) : '',
+    }));
+    setMatrixBasePrice(roundTo(matrixBasePrice * factor, 2));
+    setPriceStep(roundTo(priceStep * factor, 2));
+    const newTenders = tenderParticipants.map(t => ({
+      ...t,
+      price: t.price !== '' ? roundTo(t.price * factor, 2) : ''
+    }));
+    setScenarios(newScenarios);
+    setTenderParticipants(newTenders);
+    setCurrency(newCurrency);
+  };
+
+  const updateRate = (targetCurrency, newRate) => {
+    setRates(prev => ({ ...prev, [targetCurrency]: parseFloat(newRate) || prev[targetCurrency] }));
+  };
+
+  // --- Tender Logic ---
+  const addParticipant = (role) => {
+    const newId = Date.now().toString();
+    let newP = { id: newId, price: 0, role };
+    switch(role) {
+        case 'target': newP.name = 'Organizer Target'; newP.color = 'bg-slate-700'; break;
+        case 'competitor': newP.name = `Competitor ${tenderParticipants.filter(p=>p.role==='competitor').length + 1}`; newP.color = 'bg-red-500'; break;
+        case 'user': newP.name = 'Player (You)'; newP.color = 'bg-blue-600'; break;
+        case 'observer': newP.name = '3rd Party'; newP.color = 'bg-gray-500'; break;
+        default: newP.name = 'Participant'; newP.color = 'bg-gray-400';
+    }
+    setTenderParticipants([...tenderParticipants, newP]);
+  };
+
+  const removeParticipant = (id) => {
+    setTenderParticipants(tenderParticipants.filter(p => p.id !== id));
+  };
+
+  const updateParticipant = (id, field, value) => {
+    setTenderParticipants(tenderParticipants.map(p => 
+        p.id === id ? { ...p, [field]: field === 'price' ? (parseFloat(value) || 0) : value } : p
+    ));
+  };
+
+  // --- Builder Logic ---
+  const updateLinkedTiers = (rows, startIndex, direction = chainDirection) => {
+    let newRows = [...rows];
+    const start = startIndex === -1 ? 0 : startIndex + 1;
+    for (let i = start; i < newRows.length; i++) {
+        if (i === 0) continue;
+        const prevRow = newRows[i - 1];
+        let currentRow = { ...newRows[i] };
+        
+        if (direction === 'forward') {
+            const newCogs = parseFloat(prevRow.price) || 0;
+            if (currentRow.cogs !== newCogs || startIndex === -1) {
+                currentRow.cogs = newCogs;
+                if (currentRow.mode === 'CALC_MARGIN') {
+                    const price = parseFloat(currentRow.price) || 0;
+                    if (price !== 0) currentRow.margin = roundTo(((price - newCogs) / price) * 100, 2);
+                } else {
+                    const marginNum = parseFloat(currentRow.margin) || 0;
+                    if (marginNum < 100) currentRow.price = roundTo(currentRow.cogs / (1 - (marginNum / 100)), 2);
+                }
+            }
+        } else {
+            const newPrice = parseFloat(prevRow.cogs) || 0;
+            if (currentRow.price !== newPrice || startIndex === -1) {
+                currentRow.price = newPrice;
+                const marginNum = parseFloat(currentRow.margin) || 0;
+                currentRow.cogs = roundTo(currentRow.price * (1 - (marginNum / 100)), 2);
+            }
+        }
+        newRows[i] = currentRow;
+    }
+    return newRows;
+  };
+
+  const switchDirection = (newDir) => {
+    setChainDirection(newDir);
+    const rate = rates[currency]; 
+    const usdDefaults = newDir === 'reverse' 
+      ? [{ price: 200, cogs: 150 }, { price: 150, cogs: 127.5 }, { price: 127.5, cogs: 89.25 }]
+      : [{ price: 100, cogs: 70 }, { price: 120, cogs: 100 }, { price: 150, cogs: 120 }];
+
+    const newScenarios = [
+        { id: 1, tier: 'T1', name: newDir === 'reverse' ? 'Market / Customer' : 'Original Supplier', margin: newDir === 'reverse' ? 25 : 30, mode: 'CALC_COGS' },
+        { id: 2, tier: 'T2', name: 'Distributor', margin: newDir === 'reverse' ? 15 : 16.67, mode: newDir === 'reverse' ? 'CALC_COGS' : 'CALC_MARGIN' },
+        { id: 3, tier: 'T3', name: newDir === 'reverse' ? 'Original Supplier' : 'Retailer', margin: newDir === 'reverse' ? 30 : 20, mode: newDir === 'reverse' ? 'CALC_COGS' : 'CALC_MARGIN' },
+    ].map((s, idx) => ({
+      ...s, price: roundTo(usdDefaults[idx].price * rate, 2), cogs: roundTo(usdDefaults[idx].cogs * rate, 2)
+    }));
+    setScenarios(newScenarios);
+  };
+
+  const addScenario = () => {
+    const newId = Math.max(...scenarios.map(s => s.id), 0) + 1;
+    const nextTierNum = scenarios.length + 1;
+    let newRow = { id: newId, tier: `T${nextTierNum}`, name: `Tier ${nextTierNum} Partner`, price: '', margin: '', cogs: '', mode: 'CALC_MARGIN' };
+    const prevRow = scenarios[scenarios.length - 1];
+    if (chainDirection === 'forward') { newRow.cogs = prevRow ? prevRow.price : ''; } 
+    else { newRow.price = prevRow ? prevRow.cogs : ''; newRow.mode = 'CALC_COGS'; }
+    setScenarios([...scenarios, newRow]);
+  };
+
+  const removeScenario = (id) => {
+    const filtered = scenarios.filter(s => s.id !== id);
+    const renumbered = filtered.map((s, idx) => ({ ...s, tier: `T${idx + 1}` }));
+    const linked = updateLinkedTiers(renumbered, -1, chainDirection);
+    setScenarios(linked);
+  };
+
+  const updateScenario = (id, field, rawValue) => {
+    let newRows = scenarios.map((s, index) => {
+      if (s.id !== id) return s;
+      let updated = { ...s };
+      updated[field] = rawValue;
+      const getNum = (val) => { if (val === '' || val === '-') return 0; const p = parseFloat(val); return isNaN(p) ? 0 : p; };
+      const priceNum = field === 'price' ? getNum(rawValue) : getNum(updated.price);
+      const cogsNum = field === 'cogs' ? getNum(rawValue) : getNum(updated.cogs);
+      const marginNum = field === 'margin' ? getNum(rawValue) : getNum(updated.margin);
+      const isLinkedForward = index > 0 && chainDirection === 'forward';
+
+      if (field === 'price') {
+          updated.mode = 'CALC_MARGIN'; 
+          if (isLinkedForward) {
+             if (updated.cogs !== '') { const cogs = getNum(updated.cogs); if (priceNum !== 0) updated.margin = roundTo(((priceNum - cogs) / priceNum) * 100, 2); }
+          } else {
+             if (updated.cogs !== '') { if (priceNum !== 0) updated.margin = roundTo(((priceNum - getNum(updated.cogs)) / priceNum) * 100, 2); } 
+             else if (updated.margin !== '') { updated.cogs = roundTo(priceNum * (1 - (marginNum / 100)), 2); }
+          }
+      } else if (field === 'margin') {
+         updated.mode = 'CALC_COGS'; 
+         if (isLinkedForward) {
+             if (updated.cogs !== '') { const cogs = getNum(updated.cogs); if (marginNum < 100) updated.price = roundTo(cogs / (1 - (marginNum / 100)), 2); }
+         } else {
+             if (updated.price !== '') { updated.cogs = roundTo(priceNum * (1 - (marginNum / 100)), 2); } 
+             else if (updated.cogs !== '') { if (marginNum < 100) updated.price = roundTo(cogsNum / (1 - (marginNum / 100)), 2); }
+         }
+      } else if (field === 'cogs') {
+         updated.mode = 'CALC_MARGIN'; 
+         if (updated.price !== '') { if (priceNum !== 0) updated.margin = roundTo(((priceNum - cogsNum) / priceNum) * 100, 2); } 
+         else if (updated.margin !== '') { const margin = getNum(updated.margin); if (margin < 100) updated.price = roundTo(cogsNum / (1 - (margin / 100)), 2); }
+      }
+      return updated;
+    });
+    const changedIndex = newRows.findIndex(s => s.id === id);
+    const linkedRows = updateLinkedTiers(newRows, changedIndex, chainDirection);
+    setScenarios(linkedRows);
+  };
+
+  const matrixData = useMemo(() => {
+    const prices = [];
+    const margins = [];
+    for (let i = -2; i <= 2; i++) { prices.push(matrixBasePrice + (i * priceStep)); }
+    for (let i = -2; i <= 2; i++) { margins.push(matrixBaseMargin + (i * marginStep)); }
+    return { prices, margins };
+  }, [matrixBasePrice, matrixBaseMargin, priceStep, marginStep]);
+
+  // --- Rift Calculations & Layout ---
+  const riftStats = useMemo(() => {
+    const bids = tenderParticipants.map(p => p.price || 0).filter(p => p > 0);
+    const minBid = bids.length ? Math.min(...bids) : 0;
+    const maxBid = bids.length ? Math.max(...bids) : 0;
+    const avgBid = bids.length ? bids.reduce((a, b) => a + b, 0) / bids.length : 0;
+    const targetPrice = tenderParticipants.find(p => p.role === 'target')?.price || 0;
+    const myPrice = tenderParticipants.find(p => p.role === 'user')?.price || 0;
+    const gap = targetPrice ? ((myPrice - targetPrice) / targetPrice) * 100 : 0;
+    return { minBid, maxBid, avgBid, targetPrice, myPrice, gap };
+  }, [tenderParticipants]);
+
+  // Anti-Overlap Layout Algorithm
+  const mapData = useMemo(() => {
+    const sorted = [...tenderParticipants].sort((a, b) => b.price - a.price);
+    const range = riftStats.maxBid - riftStats.minBid || 1;
+    const padding = range * 0.15; 
+    const paddedMax = riftStats.maxBid + padding;
+    const paddedMin = Math.max(0, riftStats.minBid - padding);
+    const safeRange = paddedMax - paddedMin || 1;
+
+    const getTrueTop = (price) => {
+        const t = ((paddedMax - price) / safeRange) * 100; 
+        return Math.max(5, Math.min(95, t)); 
+    };
+
+    const items = sorted.map(p => ({
+        ...p,
+        trueTop: getTrueTop(p.price),
+        visualTop: getTrueTop(p.price),
+        side: (p.role === 'competitor' || p.role === 'target') ? 'left' : 'right'
+    }));
+
+    // Stack Logic (Push apart if overlapping)
+    ['left', 'right'].forEach(side => {
+        const sideItems = items.filter(i => i.side === side);
+        const minGap = 14; 
+        for (let i = 1; i < sideItems.length; i++) {
+            const prev = sideItems[i-1];
+            const curr = sideItems[i];
+            if (curr.visualTop < prev.visualTop + minGap) {
+                curr.visualTop = prev.visualTop + minGap;
+            }
+        }
+        for (let i = sideItems.length - 1; i >= 0; i--) {
+            const curr = sideItems[i];
+            if (curr.visualTop > 95) {
+                curr.visualTop = 95;
+                for (let j = i - 1; j >= 0; j--) {
+                    const above = sideItems[j];
+                    if (above.visualTop > sideItems[j+1].visualTop - minGap) {
+                        above.visualTop = sideItems[j+1].visualTop - minGap;
+                    }
+                }
+            }
+        }
+    });
+    return items;
+  }, [tenderParticipants, riftStats]);
+
+  const getComparisonList = (currentId) => {
+      if (!currentId) return [];
+      const current = tenderParticipants.find(p => p.id === currentId);
+      if (!current) return [];
+      return tenderParticipants.filter(p => p.id !== currentId).sort((a, b) => b.price - a.price).map(p => {
+            const diffVal = current.price - p.price;
+            const diffPct = p.price !== 0 ? (diffVal / p.price) * 100 : 0;
+            return { ...p, diffVal, diffPct };
+      });
+  };
+  const hoverComparisonList = getComparisonList(hoveredNodeId);
+
+  return (
+    <>
+      <style>
+        {`@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap');`}
+      </style>
+      <div className="min-h-screen bg-gray-50 p-6 text-gray-800" style={{ fontFamily: "'Quicksand', 'Microsoft YaHei', sans-serif" }}>
+        <div className="max-w-7xl mx-auto bg-white rounded-xl shadow-lg overflow-hidden">
+          
+          {/* Header */}
+          <div className="bg-slate-800 text-white p-6">
+             <div className="flex flex-col md:flex-row justify-between items-start gap-4 mb-4">
+                <div>
+                    <h1 className="text-2xl font-bold flex items-center gap-2"><TrendingUp className="w-8 h-8 text-blue-400" />{text.title}</h1>
+                    <p className="text-slate-300 mt-2 text-sm">{text.subtitle}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                    <div className="flex items-center gap-2">
+                        <div className="bg-slate-700 rounded-lg p-1 flex items-center">
+                            {['USD', 'NTD', 'CNY'].map(c => (
+                                <button key={c} onClick={() => handleCurrencySwitch(c)} className={`px-3 py-1 text-xs font-bold rounded ${currency === c ? 'bg-blue-600 text-white' : 'text-slate-300 hover:text-white'}`}>{c}</button>
+                            ))}
+                        </div>
+                        <button onClick={() => setLang(lang === 'en' ? 'cn' : 'en')} className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 px-3 py-1.5 rounded-full text-xs font-medium transition-colors border border-slate-600">
+                            <Globe className="w-3.5 h-3.5" /> {lang === 'en' ? '中文' : 'English'}
+                        </button>
+                    </div>
+                    {currency !== 'USD' && (
+                        <div className="flex items-center gap-2 text-xs bg-slate-700/50 px-3 py-1.5 rounded-lg border border-slate-600">
+                            <span className="text-slate-300 whitespace-nowrap">1 USD =</span>
+                            <input type="number" value={rates[currency]} onChange={(e) => updateRate(currency, e.target.value)} className="w-16 bg-slate-800 border border-slate-500 rounded px-1.5 py-0.5 text-right text-white focus:outline-none focus:border-blue-400" />
+                            <span className="text-blue-200 font-bold">{currency}</span>
+                        </div>
+                    )}
+                </div>
+             </div>
+             {activeTab === 'scenarios' && (
+                 <div className="bg-slate-700/50 p-1 rounded-lg inline-flex">
+                    <button onClick={() => switchDirection('forward')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${chainDirection === 'forward' ? 'bg-blue-500 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-600'}`}><ArrowDown className="w-4 h-4" /> {text.dir_forward}</button>
+                    <button onClick={() => switchDirection('reverse')} className={`px-4 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${chainDirection === 'reverse' ? 'bg-purple-500 text-white shadow-sm' : 'text-slate-300 hover:text-white hover:bg-slate-600'}`}><ArrowUp className="w-4 h-4" /> {text.dir_reverse}</button>
+                 </div>
+             )}
+          </div>
+
+          {/* Navigation */}
+          <div className="flex border-b border-gray-200 overflow-x-auto">
+            <button onClick={() => setActiveTab('scenarios')} className={`px-6 py-3 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'scenarios' ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-700'}`}><div className="flex items-center gap-2"><LinkIcon className="w-4 h-4"/> {text.tab_builder}</div></button>
+            <button onClick={() => setActiveTab('rift')} className={`px-6 py-3 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'rift' ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-700'}`}><div className="flex items-center gap-2"><Swords className="w-4 h-4"/> {text.tab_rift}</div></button>
+            <button onClick={() => setActiveTab('matrix')} className={`px-6 py-3 font-medium text-sm transition-colors whitespace-nowrap ${activeTab === 'matrix' ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50' : 'text-gray-500 hover:text-gray-700'}`}><div className="flex items-center gap-2"><BarChart3 className="w-4 h-4"/> {text.tab_matrix}</div></button>
+          </div>
+
+          {/* Content Area */}
+          <div className="p-6">
+            
+            {/* TAB 1: SCENARIO BUILDER */}
+            {activeTab === 'scenarios' && (
+              <div className="space-y-6">
+                <div className={`border rounded-lg p-4 text-sm flex items-start gap-3 ${chainDirection === 'forward' ? 'bg-blue-50 border-blue-100 text-blue-800' : 'bg-purple-50 border-purple-100 text-purple-800'}`}>
+                  <Info className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <strong>{text.info_title}</strong>
+                    <ul className="list-disc list-inside mt-1 space-y-1 text-xs"><li>{text.info_p1}</li><li>{text.info_p2}</li></ul>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
+                    <thead>
+                      <tr className="bg-gray-100 text-gray-600 text-xs uppercase tracking-wider">
+                        <th className="p-4 rounded-l-lg w-16 text-center">{text.th_tier}</th>
+                        <th className="p-4 w-48">{text.th_desc}</th>
+                        <th className="p-4 w-40">{text.th_price}</th>
+                        <th className="p-4 w-40">{text.th_margin}</th>
+                        <th className="p-4 w-40">{text.th_cogs}</th>
+                        <th className="p-4 bg-gray-50 text-gray-600 w-32">{text.th_profit}</th>
+                        <th className="p-4 rounded-r-lg w-16 text-center">{text.th_del}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {scenarios.map((scenario, index) => {
+                        const isLinked = index > 0;
+                        const isPriceLinked = isLinked && chainDirection === 'reverse';
+                        const isCogsLinked = isLinked && chainDirection === 'forward';
+                        const isFixedPrice = scenario.mode === 'CALC_MARGIN' && isLinked && chainDirection === 'forward';
+                        const profit = (scenario.price - scenario.cogs) || 0;
+                        return (
+                          <tr key={scenario.id} className="hover:bg-gray-50 transition-colors group">
+                            <td className="p-3 text-center"><span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-slate-800 text-white font-bold text-xs shadow-sm">{scenario.tier}</span></td>
+                            <td className="p-3"><input type="text" value={scenario.name} onChange={(e) => updateScenario(scenario.id, 'name', e.target.value)} className="w-full bg-transparent border-b border-gray-300 focus:border-blue-500 focus:outline-none px-1 py-1 text-sm font-medium" /></td>
+                            <td className="p-3"><div className="relative group/input"><DollarSign className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" /><input type="number" value={scenario.price} onChange={(e) => updateScenario(scenario.id, 'price', e.target.value)} readOnly={isPriceLinked} className={`w-full pl-7 pr-3 py-1.5 border rounded text-sm outline-none ${isPriceLinked ? 'bg-purple-50/50' : 'bg-white'}`} placeholder="0.00" />{isFixedPrice && <Lock className="w-3 h-3 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400" />}</div></td>
+                            <td className="p-3"><div className="relative group/input"><input type="number" value={scenario.margin} onChange={(e) => updateScenario(scenario.id, 'margin', e.target.value)} className="w-full pl-3 pr-7 py-1.5 border rounded text-sm outline-none" /><Percent className="w-3.5 h-3.5 absolute right-2 top-1/2 -translate-y-1/2 text-gray-400" /></div></td>
+                            <td className="p-3"><div className="relative group/input"><DollarSign className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" /><input type="number" value={scenario.cogs} onChange={(e) => updateScenario(scenario.id, 'cogs', e.target.value)} readOnly={isCogsLinked} className={`w-full pl-7 pr-3 py-1.5 border rounded text-sm outline-none ${isCogsLinked ? 'bg-blue-50/50' : 'bg-white'}`} /></div></td>
+                            <td className="p-3 text-right"><span className="font-mono text-sm font-medium">{formatCurrency(profit)}</span></td>
+                            <td className="p-3 text-center"><button onClick={() => removeScenario(scenario.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4" /></button></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-between"><button onClick={addScenario} className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 text-sm font-medium"><Plus className="w-4 h-4" /> {text.btn_add}</button></div>
+              </div>
+            )}
+
+            {/* TAB 3: SUMMONER'S RIFT */}
+            {activeTab === 'rift' && (
+               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* LEFT COLUMN */}
+                  <div className="space-y-6">
+                      <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+                          <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2 mb-4"><UserPlus className="w-4 h-4 text-blue-500" />{text.tender_gen_title}</h3>
+                          <div className="grid grid-cols-2 gap-2">
+                             <button onClick={() => addParticipant('target')} className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-lg flex items-center justify-center gap-1"><Target className="w-3 h-3" /> {text.btn_add_target}</button>
+                             <button onClick={() => addParticipant('user')} className="px-3 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-semibold rounded-lg flex items-center justify-center gap-1"><Users className="w-3 h-3" /> {text.btn_add_user}</button>
+                             <button onClick={() => addParticipant('competitor')} className="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg flex items-center justify-center gap-1"><Swords className="w-3 h-3" /> {text.btn_add_comp}</button>
+                             <button onClick={() => addParticipant('observer')} className="px-3 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg flex items-center justify-center gap-1"><Users className="w-3 h-3" /> {text.btn_add_obs}</button>
+                          </div>
+                      </div>
+                      <div className="space-y-3 max-h-[500px] overflow-y-auto pr-2">
+                         {tenderParticipants.map((p) => (
+                           <div key={p.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm hover:shadow-md transition-shadow relative group">
+                              <div className="flex justify-between items-center mb-2">
+                                <div className="flex items-center gap-1 bg-white border border-gray-300 rounded px-2 py-1 w-32 focus-within:ring-2 focus-within:ring-blue-200 focus-within:border-blue-400 transition-all">
+                                    <Edit2 className="w-3 h-3 text-gray-400" />
+                                    <input type="text" value={p.name} onChange={(e) => updateParticipant(p.id, 'name', e.target.value)} className="text-sm font-bold text-gray-800 bg-transparent focus:outline-none w-full" />
+                                </div>
+                                <div className="flex items-center gap-2">
+                                   <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded text-white ${p.color}`}>{text[`role_${p.role}`]}</span>
+                                   <button onClick={() => removeParticipant(p.id)} className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><X className="w-3 h-3" /></button>
+                                </div>
+                              </div>
+                              <div className="relative">
+                                 <label className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400"><DollarSign className="w-3.5 h-3.5" /></label>
+                                 <input type="number" value={p.price} onChange={(e) => updateParticipant(p.id, 'price', e.target.value)} className="w-full pl-7 pr-3 py-1.5 border border-gray-200 rounded-md bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-100 focus:border-blue-400 outline-none font-mono text-sm font-semibold text-gray-800" />
+                              </div>
+                           </div>
+                         ))}
+                      </div>
+                  </div>
+
+                  {/* RIGHT COLUMN */}
+                  <div className="lg:col-span-2 space-y-4">
+                      {/* ... stats ... */}
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
+                            <div className="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">{text.stat_lowest}</div>
+                            <div className="text-xl font-mono font-bold text-green-600">{formatCurrency(riftStats.minBid)}</div>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center relative overflow-hidden">
+                            <div className="relative z-10"><div className="text-xs text-blue-400 uppercase font-bold tracking-wider mb-1">Your Bid</div><div className="text-2xl font-mono font-bold text-blue-600">{formatCurrency(riftStats.myPrice)}</div></div>
+                            <div className="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-full -translate-y-1/2 translate-x-1/2"></div>
+                        </div>
+                        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 text-center">
+                            <div className="text-xs text-gray-400 uppercase font-bold tracking-wider mb-1">{text.stat_gap}</div>
+                            <div className={`text-xl font-mono font-bold ${riftStats.gap > 0 ? 'text-red-500' : 'text-green-500'}`}>{riftStats.gap > 0 ? '+' : ''}{riftStats.gap.toFixed(1)}%</div>
+                        </div>
+                      </div>
+
+                      {/* MAP */}
+                      <div className="relative h-[500px] flex flex-col group/map">
+                          <div className="absolute inset-0 bg-slate-900 rounded-xl overflow-hidden shadow-lg border border-slate-800">
+                              <div className="flex justify-between items-center p-6 relative z-10">
+                                  <h3 className="text-white font-bold flex items-center gap-2"><MapIcon className="w-5 h-5 text-blue-400" />{text.tender_map_title}</h3>
+                                  <div className="text-xs text-slate-400">{text.tender_map_subtitle}</div>
+                              </div>
+                              <div className="absolute inset-0 top-16 mx-8 mb-4">
+                                  <div className="absolute left-1/2 top-4 bottom-4 w-0.5 bg-slate-700 -translate-x-1/2"></div>
+                                  <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'radial-gradient(circle, #475569 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+                                  
+                                  {/* Smart Connectors */}
+                                  <svg className="absolute inset-0 w-full h-full pointer-events-none z-20">
+                                    {mapData.map((p) => {
+                                        const isLeft = p.side === 'left';
+                                        const startX = '50%';
+                                        const startY = `${p.trueTop}%`;
+                                        const endX = isLeft ? '35%' : '65%';
+                                        const endY = `${p.visualTop}%`;
+                                        return (
+                                            <path 
+                                                key={p.id}
+                                                d={`M ${startX} ${startY} L ${endX} ${endY}`}
+                                                fill="none" 
+                                                stroke={p.role === 'user' ? '#3B82F6' : '#64748B'}
+                                                strokeWidth="1"
+                                                className="opacity-40"
+                                            />
+                                        );
+                                    })}
+                                  </svg>
+                              </div>
+                          </div>
+
+                          <div className="absolute inset-0 top-16 mx-8 mb-4 pointer-events-none">
+                              <div className="relative w-full h-full">
+                                  {mapData.map((p) => {
+                                      const isLeft = p.side === 'left';
+                                      const isBottom = p.visualTop > 50; 
+                                      const isHovered = hoveredNodeId === p.id;
+                                      const targetGap = riftStats.targetPrice ? ((p.price - riftStats.targetPrice) / riftStats.targetPrice) * 100 : 0;
+                                      
+                                      // SMART POPUP POSITIONING
+                                      let popupClass = "";
+                                      // If close to top edge (<20%), force bottom-open
+                                      const forceBottom = p.visualTop < 20;
+                                      // If close to bottom edge (>80%), force top-open
+                                      const forceTop = p.visualTop > 80;
+                                      
+                                      // Inward Logic:
+                                      // If node is Left, popup should be Right-aligned (grow left? No, grow Right)
+                                      // If node is Left: "left-0" means anchor left edge. "right-0" means anchor right edge.
+                                      // We want node on left -> popup opens towards center (Right)
+                                      // Wait, if node is left, "left-0" puts popup left edge at node left edge.
+                                      // We want it to be fully visible.
+                                      
+                                      if (isLeft) {
+                                          // Node on Left. Popup aligns left edge to parent (0).
+                                          popupClass = "left-0 origin-top-left";
+                                      } else {
+                                          // Node on Right. Popup aligns right edge to parent (0).
+                                          popupClass = "right-0 origin-top-right";
+                                      }
+
+                                      // Vertical Logic
+                                      if (forceBottom) {
+                                          popupClass += " top-full mt-2";
+                                      } else if (forceTop) {
+                                          popupClass += " bottom-full mb-2";
+                                      } else {
+                                          // Default: Open away from center vertical if possible, or just default bottom
+                                          popupClass += isBottom ? " bottom-full mb-2" : " top-full mt-2";
+                                      }
+
+                                      return (
+                                          <div key={p.id} className="absolute w-full flex items-center z-10 pointer-events-auto" style={{ top: `${p.visualTop}%`, zIndex: isHovered ? 50 : 10 }}>
+                                              {/* Dot at TRUE POSITION */}
+                                              <div 
+                                                className={`absolute left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 border-slate-900 ${p.color} shadow-[0_0_10px_currentColor] z-20 cursor-pointer transition-transform group-hover/node:scale-125`}
+                                                style={{ transform: `translate(-50%, ${(p.trueTop - p.visualTop) * (500/100)}px)` }} 
+                                                onMouseEnter={() => setHoveredNodeId(p.id)}
+                                                onMouseLeave={() => setHoveredNodeId(null)}
+                                              ></div>
+
+                                              {/* Label (Visually Shifted) */}
+                                              <div 
+                                                className={`absolute ${isLeft ? 'right-1/2 pr-10' : 'left-1/2 pl-10'} top-1/2 -translate-y-1/2 flex flex-col ${isLeft ? 'items-end' : 'items-start'}`}
+                                                onMouseEnter={() => setHoveredNodeId(p.id)}
+                                                onMouseLeave={() => setHoveredNodeId(null)}
+                                              >
+                                                  <div className={`px-3 py-1.5 rounded-lg border shadow-lg flex items-center gap-3 min-w-[160px] backdrop-blur-sm transition-transform duration-200 cursor-pointer ${p.role === 'user' ? 'bg-blue-900/80 border-blue-400 ring-2 ring-blue-500/30' : 'bg-slate-800/90 border-slate-600'} ${isHovered ? 'scale-105 ring-2 ring-white/20' : ''}`}>
+                                                      <div className="flex flex-col w-full">
+                                                          <div className="flex justify-between items-center w-full mb-0.5">
+                                                              <span className={`text-[10px] font-bold uppercase tracking-wider ${p.role === 'user' ? 'text-blue-200' : 'text-slate-400'}`}>{p.name}</span>
+                                                              {p.role !== 'target' && (
+                                                                  <span className={`text-[9px] font-bold ${targetGap > 0 ? 'text-red-400' : 'text-green-400'}`}>{targetGap > 0 ? '+' : ''}{targetGap.toFixed(1)}%</span>
+                                                              )}
+                                                          </div>
+                                                          <span className="text-lg font-mono font-bold text-white leading-none">{formatCurrency(p.price)}</span>
+                                                      </div>
+                                                      <div className={`w-2 h-2 rounded-full ${p.color} shadow-[0_0_8px_currentColor] flex-shrink-0`}></div>
+                                                  </div>
+
+                                                  {/* Battle Card Popup */}
+                                                  {isHovered && (
+                                                      <div className={`absolute w-64 bg-slate-900/95 border border-slate-600 rounded-xl shadow-2xl backdrop-blur-xl p-3 z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-200 ${popupClass}`}>
+                                                          <div className="flex items-center justify-between border-b border-slate-700 pb-2 mb-2">
+                                                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1"><Swords className="w-3 h-3" /> {text.compare_title}</span>
+                                                              <span className="text-[10px] text-slate-500">vs All</span>
+                                                          </div>
+                                                          <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                                                              <div className="grid grid-cols-4 text-[9px] text-slate-500 px-1 font-semibold uppercase">
+                                                                  <div className="col-span-2">{text.col_vs}</div>
+                                                                  <div className="text-right">{text.col_diff}</div>
+                                                                  <div className="text-right">{text.col_pct}</div>
+                                                              </div>
+                                                              {hoverComparisonList.map((comp) => (
+                                                                  <div key={comp.id} className="grid grid-cols-4 items-center text-xs px-1 py-1 rounded hover:bg-white/5 transition-colors">
+                                                                      <div className="col-span-2 flex items-center gap-1.5 overflow-hidden">
+                                                                          <div className={`w-1.5 h-1.5 rounded-full ${comp.color}`}></div>
+                                                                          <span className="truncate text-slate-200 font-medium">{comp.name}</span>
+                                                                      </div>
+                                                                      <div className={`text-right font-mono ${comp.diffVal > 0 ? 'text-red-400' : 'text-green-400'}`}>{comp.diffVal > 0 ? '+' : ''}{formatCurrency(comp.diffVal)}</div>
+                                                                      <div className={`text-right font-mono font-bold ${comp.diffVal > 0 ? 'text-red-400' : 'text-green-400'}`}>{comp.diffPct > 0 ? '+' : ''}{comp.diffPct.toFixed(1)}%</div>
+                                                                  </div>
+                                                              ))}
+                                                          </div>
+                                                      </div>
+                                                  )}
+                                              </div>
+                                          </div>
+                                      );
+                                  })}
+                              </div>
+                          </div>
+                      </div>
+                  </div>
+               </div>
+            )}
+
+            {/* TAB 4: MATRIX (Original) */}
+            {activeTab === 'matrix' && (
+              <div className="space-y-6">
+                 {/* ... existing matrix UI ... */}
+                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm flex flex-col md:flex-row gap-6 items-center justify-between">
+                   <div className="flex gap-4 items-center">
+                      <div><label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{text.mat_center_price}</label><input type="number" value={matrixBasePrice} onChange={(e) => setMatrixBasePrice(parseFloat(e.target.value) || 0)} className="w-32 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-200 outline-none" /></div>
+                      <div><label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{text.mat_price_step}</label><input type="number" value={priceStep} onChange={(e) => setPriceStep(parseFloat(e.target.value) || 0)} className="w-24 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-200 outline-none" /></div>
+                   </div>
+                   <div className="h-8 w-px bg-gray-300 hidden md:block"></div>
+                   <div className="flex gap-4 items-center">
+                      <div><label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{text.mat_center_margin}</label><input type="number" value={matrixBaseMargin} onChange={(e) => setMatrixBaseMargin(parseFloat(e.target.value) || 0)} className="w-32 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-200 outline-none" /></div>
+                      <div><label className="block text-xs font-semibold text-gray-500 uppercase mb-1">{text.mat_margin_step}</label><input type="number" value={marginStep} onChange={(e) => setMarginStep(parseFloat(e.target.value) || 0)} className="w-24 px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-blue-200 outline-none" /></div>
+                   </div>
+                 </div>
+                 <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="w-full text-center border-collapse">
+                      <thead>
+                        <tr>
+                          <th className="p-3 bg-gray-100 border-b border-r border-gray-200 text-xs font-bold text-gray-500 uppercase">{text.mat_axis}</th>
+                          {matrixData.prices.map((p, idx) => ( <th key={idx} className={`p-3 border-b border-gray-200 text-sm font-semibold ${p === matrixBasePrice ? 'bg-blue-100 text-blue-800' : 'bg-gray-50 text-gray-700'}`}>{formatCurrency(p)}</th> ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {matrixData.margins.map((m, mIdx) => (
+                          <tr key={mIdx}>
+                            <th className={`p-3 border-r border-gray-200 text-sm font-semibold ${m === matrixBaseMargin ? 'bg-blue-100 text-blue-800' : 'bg-gray-50 text-gray-700'}`}>{m.toFixed(1)}%</th>
+                            {matrixData.prices.map((p, pIdx) => {
+                              const cogs = p * (1 - m/100);
+                              const isCenter = p === matrixBasePrice && m === matrixBaseMargin;
+                              return ( <td key={pIdx} className={`p-4 border border-gray-100 font-mono text-sm ${isCenter ? 'bg-blue-600 text-white font-bold shadow-inner' : 'text-slate-600 hover:bg-gray-50'}`}>{formatCurrency(cogs)}</td> )
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                 </div>
+                 <p className="text-xs text-gray-500 text-center">{text.mat_footer}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+};
+
+export default COGS_Calculator;
